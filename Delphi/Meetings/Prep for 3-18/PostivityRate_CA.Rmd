@@ -1,0 +1,228 @@
+---
+title: "Delphi"
+author: "Zixuan Jin"
+date: "2/28/2022"
+output: html_document
+---
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(covidcast)
+library(lubridate)
+```
+
+```{r}
+# Facebook survey
+# Estimated test positivity rate (percent) among people tested for COVID-19 in the past 14 days
+# Earliest date available: 2020-09-08
+tp_ctis <- covidcast_signal(
+  data_source = "fb-survey", signal = "smoothed_wtested_positive_14d",
+  start_day = "2020-09-09", end_day = "2022-01-26",
+  geo_type = "state",
+  geo_value = "ca"
+)
+
+# Quidel
+# Percentage of antigen tests that were positive for COVID-19 (all ages), smoothed by pooling together the last 7 days of tests.
+# Earliest date available: 2020-05-26
+tp_quidel <- covidcast_signal(
+  data_source = "quidel", signal = "covid_ag_smoothed_pct_positive",
+  start_day = "2020-09-09", end_day = "2022-01-26",
+  geo_type = "state",
+  geo_value = "ca"
+)
+```
+
+```{r}
+tp_ctis %>% 
+  ggplot(aes(x=time_value, y=value)) +
+  geom_line() +
+  labs(y="Test positivity rate in %",
+       title = "COVID test positivity rate") +
+  xlim(ymd("2020-09-09", "2022-01-27"))
+```
+
+```{r}
+bind_rows(tp_ctis, tp_quidel) %>% 
+  group_by(signal) %>% 
+  mutate(value = scale(value),
+         signal = if_else(signal == "smoothed_wtested_positive_14d", "tp_ctis", "tp_quidel")) %>%
+  ggplot(aes(x=time_value, y=value, color = signal)) +
+  geom_line() +
+  scale_color_discrete(name = "Signal", labels = c("CTIS", "Quidel")) +
+  labs(y="Standardized test positivity rate", x="Time", title="Test positivity rate from two sources in California")
+  
+```
+
+## Correlation overall 
+
+```{r}
+# Spearman’s rank correlation coefficient
+corr <- cor.test(x=tp_ctis$value, y=tp_quidel$value, method = 'spearman')
+corr
+```
+
+## Cross-correlation overall
+
+```{r}
+tp_ctis_ts <- ts(tp_ctis$value)
+tp_quidel_ts <- ts(tp_quidel$value)
+ccf(tp_ctis_ts, tp_quidel_ts, main="Cross-correlation of two data signals measuring test positivity rate")
+```
+
+```{r}
+print(ccf(tp_ctis_ts, tp_quidel_ts, plot=FALSE))
+```
+
+## Correlations at 1st peak
+
+```{r}
+tp_ctis_peak_1_ca <- covidcast_signal(
+  data_source = "fb-survey", signal = "smoothed_wtested_positive_14d",
+  start_day = "2020-11-01", end_day = "2021-03-01",
+  geo_type = "state",
+  geo_value = "ca"
+)
+
+tp_quidel_peak_1_ca <- covidcast_signal(
+  data_source = "quidel", signal = "covid_ag_smoothed_pct_positive",
+  start_day = "2020-11-01", end_day = "2021-03-01",
+  geo_type = "state",
+  geo_value = "ca"
+)
+```
+
+```{r}
+bind_rows(tp_ctis_peak_1_ca, tp_quidel_peak_1_ca) %>% 
+  group_by(signal) %>% 
+  mutate(value = scale(value),
+         signal = if_else(signal == "smoothed_wtested_positive_14d", "tp_ctis", "tp_quidel")) %>%
+  ggplot(aes(x=time_value, y=value, color = signal)) +
+  geom_line() +
+  scale_color_discrete(name = "Signal", labels = c("CTIS", "Quidel")) +
+  labs(y="Standardized test positivity rate", x="Time", title="Test positivity rate from two sources in California at peak 1")
+  
+```
+
+### Correlation at 1st peak
+
+```{r}
+# Spearman’s rank correlation coefficient
+corr_peak_1 <- cor.test(x=tp_ctis_peak_1_ca$value, y=tp_quidel_peak_1_ca$value, method = 'spearman')
+corr_peak_1
+```
+
+### Cross-correlation at 1st peak
+
+```{r}
+tp_ctis_peak_1_ts <- ts(tp_ctis_peak_1_ca$value)
+tp_quidel_peak_1_ts <- ts(tp_quidel_peak_1_ca$value)
+ccf(tp_ctis_peak_1_ts, tp_quidel_peak_1_ts
+    , main="Cross-correlation of two data signals measuring test positivity rate at peak 1")
+```
+```{r}
+print(ccf(tp_ctis_peak_1_ts, tp_quidel_peak_1_ts, plot=FALSE))
+```
+
+## Correlations at 2nd peak
+
+```{r}
+tp_ctis_peak_2_ca <- covidcast_signal(
+  data_source = "fb-survey", signal = "smoothed_wtested_positive_14d",
+  start_day = "2021-07-01", end_day = "2021-09-30",
+  geo_type = "state",
+  geo_value = "ca"
+)
+
+tp_quidel_peak_2_ca <- covidcast_signal(
+  data_source = "quidel", signal = "covid_ag_smoothed_pct_positive",
+  start_day = "2021-07-01", end_day = "2021-09-30",
+  geo_type = "state",
+  geo_value = "ca"
+)
+```
+
+
+```{r}
+bind_rows(tp_ctis_peak_2_ca, tp_quidel_peak_2_ca) %>% 
+  group_by(signal) %>% 
+  mutate(value = scale(value),
+         signal = if_else(signal == "smoothed_wtested_positive_14d", "tp_ctis", "tp_quidel")) %>%
+  ggplot(aes(x=time_value, y=value, color = signal)) +
+  geom_line() +
+  scale_color_discrete(name = "Signal", labels = c("CTIS", "Quidel")) +
+  labs(y="Standardized test positivity rate", x="Time", title="Test positivity rate from two sources in California at peak 2")
+  
+```
+
+### Correlation at 2nd peak
+
+```{r}
+# Spearman’s rank correlation coefficient
+corr_peak_2 <- cor.test(x=tp_ctis_peak_2_ca$value, y=tp_quidel_peak_2_ca$value, method = 'spearman')
+corr_peak_2
+```
+
+### Cross-correlation at 2nd peak
+
+```{r}
+tp_ctis_peak_2_ts <- ts(tp_ctis_peak_2_ca$value)
+tp_quidel_peak_2_ts <- ts(tp_quidel_peak_2_ca$value)
+ccf(tp_ctis_peak_2_ts, tp_quidel_peak_2_ts
+    , main="Cross-correlation of two data signals measuring test positivity rate at peak 2")
+```
+```{r}
+print(ccf(tp_ctis_peak_2_ts, tp_quidel_peak_2_ts, plot=FALSE))
+```
+
+## Correlations at 3rd peak
+
+```{r}
+tp_ctis_peak_3_ca <- covidcast_signal(
+  data_source = "fb-survey", signal = "smoothed_wtested_positive_14d",
+  start_day = "2021-12-01", end_day = "2022-01-26",
+  geo_type = "state",
+  geo_value = "ca"
+)
+
+tp_quidel_peak_3_ca <- covidcast_signal(
+  data_source = "quidel", signal = "covid_ag_smoothed_pct_positive",
+  start_day = "2021-12-01", end_day = "2022-01-26",
+  geo_type = "state",
+  geo_value = "ca"
+)
+```
+
+```{r}
+bind_rows(tp_ctis_peak_3_ca, tp_quidel_peak_3_ca) %>% 
+  group_by(signal) %>% 
+  mutate(value = scale(value),
+         signal = if_else(signal == "smoothed_wtested_positive_14d", "tp_ctis", "tp_quidel")) %>%
+  ggplot(aes(x=time_value, y=value, color = signal)) +
+  geom_line() +
+  scale_color_discrete(name = "Signal", labels = c("CTIS", "Quidel")) +
+  labs(y="Standardized test positivity rate", x="Time", title="Test positivity rate from two sources in California at peak 3")
+  
+```
+
+
+### Correlation at 3rd peak
+
+```{r}
+# Spearman’s rank correlation coefficient
+corr_peak_3 <- cor.test(x=tp_ctis_peak_3_ca$value, y=tp_quidel_peak_3_ca$value, method = 'spearman')
+corr_peak_3
+```
+
+### Cross-correlation at 3rd peak
+
+```{r}
+tp_ctis_peak_3_ts <- ts(tp_ctis_peak_3_ca$value)
+tp_quidel_peak_3_ts <- ts(tp_quidel_peak_3_ca$value)
+ccf(tp_ctis_peak_3_ts, tp_quidel_peak_3_ts
+    , main="Cross-correlation of two data signals measuring test positivity rate at peak 3")
+```
+
+
+```{r}
+print(ccf(tp_ctis_peak_3_ts, tp_quidel_peak_3_ts, plot=FALSE))
+```

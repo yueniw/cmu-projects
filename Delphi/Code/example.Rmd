@@ -1,0 +1,48 @@
+---
+title: "CMU MSP Project"
+author: "Jacob Bien"
+date: 2022-02-02
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(covidcast)
+library(lubridate)
+```
+
+```{r}
+cli <- covidcast_signal(
+  data_source = "fb-survey", signal = "smoothed_wcli",
+  start_day = "2020-04-01", end_day = "2022-01-26",
+  geo_type = "county",
+  geo_value = "06037"
+)
+cases <- covidcast_signal(
+  data_source = "jhu-csse", signal = "confirmed_7dav_incidence_prop",
+  start_day = "2020-04-01", end_day = "2022-01-26",
+  geo_type = "county",
+  geo_value = "06037"
+)
+```
+
+```{r}
+cases %>% 
+  ggplot(aes(x=time_value, y=value)) +
+  geom_line() +
+  labs(y="Cases per 100K",
+       title = "Confirmed cases") +
+  xlim(ymd("2020-04-01", "2022-01-27"))
+```
+
+```{r}
+bind_rows(cases, cli) %>% 
+  group_by(signal) %>% 
+  mutate(value = scale(value),
+         signal = if_else(signal == "smoothed_wcli", "CLI", "Cases")) %>%
+  ggplot(aes(x=time_value, y=value, color = signal)) +
+  geom_line() +
+  labs(y="unitless")
+```

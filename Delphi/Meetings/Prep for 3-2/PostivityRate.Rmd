@@ -1,0 +1,68 @@
+---
+title: "Delphi"
+author: "Zixuan Jin"
+date: "2/28/2022"
+output: html_document
+---
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(covidcast)
+library(lubridate)
+```
+
+```{r}
+# Facebook survey
+# Estimated test positivity rate (percent) among people tested for COVID-19 in the past 14 days
+# Earliest date available: 2020-09-08
+tp_ctis <- covidcast_signal(
+  data_source = "fb-survey", signal = "smoothed_wtested_positive_14d",
+  start_day = "2020-09-09", end_day = "2022-01-26",
+  geo_type = "state",
+  geo_value = "pa"
+)
+
+# Quidel
+# Percentage of antigen tests that were positive for COVID-19 (all ages), smoothed by pooling together the last 7 days of tests.
+# Earliest date available: 2020-05-26
+tp_quidel <- covidcast_signal(
+  data_source = "quidel", signal = "covid_ag_smoothed_pct_positive",
+  start_day = "2020-09-09", end_day = "2022-01-26",
+  geo_type = "state",
+  geo_value = "pa"
+)
+```
+
+```{r}
+tp_ctis %>% 
+  ggplot(aes(x=time_value, y=value)) +
+  geom_line() +
+  labs(y="Test positivity rate in %",
+       title = "COVID test positivity rate") +
+  xlim(ymd("2020-09-09", "2022-01-27"))
+```
+
+```{r}
+bind_rows(tp_ctis, tp_quidel) %>% 
+  group_by(signal) %>% 
+  mutate(value = scale(value),
+         signal = if_else(signal == "smoothed_wtested_positive_14d", "tp_ctis", "tp_quidel")) %>%
+  ggplot(aes(x=time_value, y=value, color = signal)) +
+  geom_line() +
+  scale_color_discrete(name = "Signal", labels = c("CTIS", "Quidel")) +
+  labs(y="Standardized test positivity rate", x="Time", title="Test positivity rate from two sources in Pennsylvania")
+  
+```
+
+## Correlation
+
+```{r}
+# Spearman’s rank correlation coefficient
+corr <- cor.test(x=tp_ctis$value, y=tp_quidel$value, method = 'spearman')
+corr
+```
+
+
+
+
+
+
