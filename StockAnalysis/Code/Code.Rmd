@@ -1,0 +1,752 @@
+---
+title: "Time series"
+author: "Yucheng Wang yw6"
+date: "4/14/2022"
+output: pdf_document
+---
+
+# Google
+
+## EDA
+
+```{r}
+library(fGarch)
+library(forecast)
+library(tseries)
+google = read.csv("/Users/wyc/GOOGL_2006-01-01_to_2018-01-01.csv")
+```
+
+```{r}
+head(google)
+google_open = google$Open
+google_open = ts(google_open,start = 0)
+```
+
+```{r}
+plot(y=google_open,x=as.Date(google$Date),type = "l",main="The open price of Google")
+```
+The open price of google
+
+```{r}
+par(mfrow=c(2,1), mar = c(2, 4, 2, 2))
+t.hat <- predict(loess(google_open ~ time(google_open), span=0.17))
+plot(google_open)
+lines(as.numeric(time(google_open)), t.hat, col="red", lwd=2)
+plot(google_open-t.hat)
+```
+Loess, dipict the trend
+
+```{r}
+plot(log(google_open))
+```
+Take log to have a constant trend.
+
+```{r}
+plot(diff(log(google_open)))
+plot(diff(log(google_open)),xlim=c(1500,1700))
+```
+Take one diff, seems no trend, after diff it is return of the stock. Does not seems to have any seasonal pattern. 
+
+## Model building
+
+```{r}
+library(forecast)
+acf(diff(log(google_open)))
+pacf(diff(log(google_open)))
+model = auto.arima(diff(log(google_open)), max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+Fit ARIMA model to the return. Hard to figure our the orders of the ARIMA model by acf, pacf, thus auto.arima. arima(1,0,3) best.
+
+```{r}
+arima_model = arima(x=diff(log(google_open)),order = c(1,0,3),method='ML')
+summary(arima_model)
+plot(diff(log(google_open)))
+lines(diff(log(google_open))-arima_model$resid,col="red")
+```
+Bad result.
+
+```{r}
+qqnorm(arima_model$resid); qqline(arima_model$resid)
+acf(arima_model$resid)
+pacf(arima_model$resid)
+hist(arima_model$resid,breaks=100,prob=TRUE)
+library(MASS)
+library(QRM)
+fit1 <- fitdistr(arima_model$resid, "normal")
+para <- fit1$estimate
+curve(dnorm(x, para[1], para[2]), col = 2, add = TRUE)
+fit2 = fit.st(arima_model$resid)
+p_val = rep(0,30)
+for(i in 1:30){
+  p_val[i] = Box.test(arima_model$residual^2,lag = i)[3]
+}
+stdret <- residuals(arima_model, standardize = TRUE)
+library(PerformanceAnalytics)
+chart.Histogram(stdret, methods = c("add.normal", "add.density"),
+          colorset=c("gray","red","blue"))
+```
+qqplot, non-gaussian resid. Heteroscedasticity exist from the test. But we probabily can use arima(1,0,3) as a mean model
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+library(fGarch)
+gfit1 = garchFit(~garch(1,0),data = diff(log(google_open)))
+gfit2 = garchFit(~garch(1,1),data = diff(log(google_open)))
+gfit3 = garchFit(~garch(2,0),data = diff(log(google_open)))
+gfit4 = garchFit(~garch(2,1),data = diff(log(google_open)))
+gfit5 = garchFit(~garch(1,2),data = diff(log(google_open)))
+gfit6 = garchFit(~garch(2,2),data = diff(log(google_open)))
+
+gfit7 = garchFit(~arma(1,3)+garch(1,0),data = diff(log(google_open)))
+gfit8 = garchFit(~arma(1,3)+garch(1,1),data = diff(log(google_open)))
+gfit9 = garchFit(~arma(1,3)+garch(2,0),data = diff(log(google_open)))
+gfit10 = garchFit(~arma(1,3)+garch(2,1),data = diff(log(google_open)))
+gfit11 = garchFit(~arma(1,3)+garch(1,2),data = diff(log(google_open)))
+gfit12 = garchFit(~arma(1,3)+garch(2,2),data = diff(log(google_open)))
+
+
+```
+
+```{r}
+summary(gfit1)
+summary(gfit2)
+summary(gfit3)
+summary(gfit4)
+summary(gfit5)
+summary(gfit6)
+summary(gfit7)
+summary(gfit8)
+summary(gfit9)
+summary(gfit10)
+summary(gfit11)
+summary(gfit12)
+```
+According to the AIC(no big difference) and the significance, we find that generally we should have a ARMA model as mean, here the best model is ARMA(1,3)+GARCH(1,1), but we find that ma2, ma3, not significant. since AIC are similar, and the significance, we choose GARCH(1,1) as our best model, it is simple and reasonable.
+
+```{r}
+gfit = garchFit(~garch(1,1),data = diff(log(google_open)))
+summary(gfit)
+```
+
+```{r}
+par(mfrow=c(2,1))
+plot(gfit, which = 1)
+plot(gfit, which = 2)
+```
+
+```{r}
+gfit = garch(diff(log(google_open)),order = c(1,1))
+plot(predict(gfit))
+```
+
+```{r}
+library(rugarch)
+default_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)))
+default_garch <- ugarchfit(spec = default_spec, data = diff(log(google_open)))
+set.seed(135)
+sim = ugarchsim(default_garch,n.sim=1000)
+sim_rst = sim@simulation$seriesSim[,1]
+matplot(y = sim@simulation$seriesSim[,1],x=3018:4017, type = "l",
+       main = "Simulations of Open",col = "red",xlim=c(0,4020),ylab="index",xlab="difflogopen",ylim=c(-0.12,0.12))
+lines(diff(log(google_open)))
+```
+```{r}
+sim = rep(0,1000)
+first = log(google_open)[3018]
+for(i in 1:1000){
+  if(i==1){
+    sim[i]=first+sim_rst[1]
+  }
+  else{
+  sim[i]=sim[i-1]+sim_rst[i]}
+}
+```
+
+```{r}
+plot(log(google_open),xlim = c(0,4020),ylim = c(4.5,8))
+lines(x=3018:4017,y=sim,col="red",type="l")
+```
+
+```{r}
+plot(exp(log(google_open)),xlim = c(0,4020),ylim=c(150,2700))
+lines(x=3018:4017,y=exp(sim),col="red",type="l")
+```
+
+```{r}
+acf((diff(log(google_open)))^2)
+pacf((diff(log(google_open)))^2)
+```
+
+```{r}
+model = auto.arima(diff(log(google_open))^2, max.p = 2, max.q = 2,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+garch(1,1) is better
+
+
+
+# apple
+
+## EDA
+
+```{r}
+apple = read.csv("/Users/wyc/AAPL_2006-01-01_to_2018-01-01.csv")
+```
+
+```{r}
+head(apple)
+apple_open = apple$Open
+apple_open = ts(apple_open,start = 0)
+```
+
+```{r}
+plot(y=apple_open,x=as.Date(apple$Date),type = "l",main="The open price of apple")
+```
+The open price of apple
+
+```{r}
+par(mfrow=c(2,1), mar = c(2, 4, 2, 2))
+t.hat <- predict(loess(apple_open ~ time(apple_open), span=0.17))
+plot(apple_open)
+lines(as.numeric(time(apple_open)), t.hat, col="red", lwd=2)
+plot(apple_open-t.hat)
+```
+Loess, dipict the trend
+
+```{r}
+plot(log(apple_open))
+```
+Take log to have a constant trend.
+
+```{r}
+plot(diff(log(apple_open)))
+plot(diff(log(apple_open)),xlim=c(1500,1700))
+```
+Take one diff, seems no trend, after diff it is return of the stock. Does not seems to have any seasonal pattern. 
+
+## Model building
+
+```{r}
+library(forecast)
+acf(diff(log(apple_open)))
+pacf(diff(log(apple_open)))
+model = auto.arima(diff(log(apple_open)), max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+Fit ARIMA model to the return. Hard to figure our the orders of the ARIMA model by acf, pacf, thus auto.arima. arima(3,0,3) best.
+
+```{r,warning=F}
+arima_model = arima(x=diff(log(apple_open)),order = c(3,0,3),method='ML')
+summary(arima_model)
+plot(diff(log(apple_open)))
+lines(diff(log(apple_open))-arima_model$resid,col="red")
+```
+Bad result.
+
+```{r}
+qqnorm(arima_model$resid); qqline(arima_model$resid)
+acf(arima_model$resid)
+pacf(arima_model$resid)
+hist(arima_model$resid,breaks=100,prob=TRUE)
+library(MASS)
+library(QRM)
+fit1 <- fitdistr(arima_model$resid, "normal")
+para <- fit1$estimate
+curve(dnorm(x, para[1], para[2]), col = 2, add = TRUE)
+fit2 = fit.st(arima_model$resid)
+p_val = rep(0,30)
+for(i in 1:30){
+  p_val[i] = Box.test(arima_model$residual^2,lag = i)[3]
+}
+stdret <- residuals(arima_model, standardize = TRUE)
+library(PerformanceAnalytics)
+chart.Histogram(stdret, methods = c("add.normal", "add.density"),
+          colorset=c("gray","red","blue"))
+```
+qqplot, non-gaussian resid. Heteroscedasticity exist from the test. But we probabily can use arima(1,0,3) as a mean model
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+library(fGarch)
+gfit1 = garchFit(~garch(1,0),data = diff(log(apple_open)))
+gfit2 = garchFit(~garch(1,1),data = diff(log(apple_open)))
+gfit3 = garchFit(~garch(2,0),data = diff(log(apple_open)))
+gfit4 = garchFit(~garch(2,1),data = diff(log(apple_open)))
+gfit5 = garchFit(~garch(1,2),data = diff(log(apple_open)))
+gfit6 = garchFit(~garch(2,2),data = diff(log(apple_open)))
+
+gfit7 = garchFit(~arma(3,3)+garch(1,0),data = diff(log(apple_open)))
+gfit8 = garchFit(~arma(3,3)+garch(1,1),data = diff(log(apple_open)))
+gfit9 = garchFit(~arma(3,3)+garch(2,0),data = diff(log(apple_open)))
+gfit10 = garchFit(~arma(3,3)+garch(2,1),data = diff(log(apple_open)))
+gfit11 = garchFit(~arma(3,3)+garch(1,2),data = diff(log(apple_open)))
+gfit12 = garchFit(~arma(3,3)+garch(2,2),data = diff(log(apple_open)))
+
+
+```
+
+```{r}
+summary(gfit1)
+summary(gfit2)
+summary(gfit3)
+summary(gfit4)
+summary(gfit5)
+summary(gfit6)
+summary(gfit7)
+summary(gfit8)
+summary(gfit9)
+summary(gfit10)
+summary(gfit11)
+summary(gfit12)
+```
+According to the AIC(no big difference) and the significance, we find that generally we should have a ARMA model as mean, here the best model is GARCH(1,1)
+
+```{r}
+gfit = garchFit(~garch(1,1),data = diff(log(apple_open)))
+summary(gfit)
+```
+
+```{r}
+par(mfrow=c(2,1))
+plot(gfit, which = 1)
+plot(gfit, which = 2)
+```
+
+```{r}
+gfit = garch(diff(log(apple_open)),order = c(1,1))
+plot(predict(gfit))
+```
+```{r}
+library(rugarch)
+default_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)))
+default_garch <- ugarchfit(spec = default_spec, data = diff(log(apple_open)))
+set.seed(116)
+sim = ugarchsim(default_garch,n.sim=1000)
+sim_rst = sim@simulation$seriesSim[,1]
+matplot(y = sim@simulation$seriesSim[,1],x=3018:4017, type = "l",
+       main = "Simulations of Open",col = "red",xlim=c(0,4020),ylab="index",xlab="difflogopen",ylim=c(-0.12,0.12))
+lines(diff(log(apple_open)))
+```
+```{r}
+sim = rep(0,1000)
+first = log(apple_open)[3018]
+for(i in 1:1000){
+  if(i==1){
+    sim[i]=first+sim_rst[1]
+  }
+  else{
+  sim[i]=sim[i-1]+sim_rst[i]}
+}
+```
+
+```{r}
+plot(log(apple_open),xlim = c(0,4020),ylim = c(2,7))
+lines(x=3018:4017,y=sim,col="red",type="l")
+```
+
+```{r}
+plot(exp(log(apple_open)),xlim = c(0,4020),ylim=c(0,1200))
+lines(x=3018:4017,y=exp(sim),col="red",type="l")
+```
+
+```{r}
+acf((diff(log(apple_open)))^2)
+pacf((diff(log(apple_open)))^2)
+```
+
+```{r}
+model = auto.arima(diff(log(apple_open))^2, max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+garch(1,1) is better
+
+
+# apple
+
+## EDA
+
+```{r}
+apple = read.csv("/Users/wyc/AAPL_2006-01-01_to_2018-01-01.csv")
+```
+
+```{r}
+head(apple)
+apple_open = apple$Open
+apple_open = ts(apple_open,start = 0)
+```
+
+```{r}
+plot(y=apple_open,x=as.Date(apple$Date),type = "l",main="The open price of apple")
+```
+The open price of apple
+
+```{r}
+par(mfrow=c(2,1), mar = c(2, 4, 2, 2))
+t.hat <- predict(loess(apple_open ~ time(apple_open), span=0.17))
+plot(apple_open)
+lines(as.numeric(time(apple_open)), t.hat, col="red", lwd=2)
+plot(apple_open-t.hat)
+```
+Loess, dipict the trend
+
+```{r}
+plot(log(apple_open))
+```
+Take log to have a constant trend.
+
+```{r}
+plot(diff(log(apple_open)))
+plot(diff(log(apple_open)),xlim=c(1500,1700))
+```
+Take one diff, seems no trend, after diff it is return of the stock. Does not seems to have any seasonal pattern. 
+
+## Model building
+
+```{r}
+library(forecast)
+acf(diff(log(apple_open)))
+pacf(diff(log(apple_open)))
+model = auto.arima(diff(log(apple_open)), max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+Fit ARIMA model to the return. Hard to figure our the orders of the ARIMA model by acf, pacf, thus auto.arima. arima(3,0,3) best.
+
+```{r,warning=F}
+arima_model = arima(x=diff(log(apple_open)),order = c(3,0,3),method='ML')
+summary(arima_model)
+plot(diff(log(apple_open)))
+lines(diff(log(apple_open))-arima_model$resid,col="red")
+```
+Bad result.
+
+```{r}
+qqnorm(arima_model$resid); qqline(arima_model$resid)
+acf(arima_model$resid)
+pacf(arima_model$resid)
+hist(arima_model$resid,breaks=100,prob=TRUE)
+library(MASS)
+library(QRM)
+fit1 <- fitdistr(arima_model$resid, "normal")
+para <- fit1$estimate
+curve(dnorm(x, para[1], para[2]), col = 2, add = TRUE)
+fit2 = fit.st(arima_model$resid)
+p_val = rep(0,30)
+for(i in 1:30){
+  p_val[i] = Box.test(arima_model$residual^2,lag = i)[3]
+}
+stdret <- residuals(arima_model, standardize = TRUE)
+library(PerformanceAnalytics)
+chart.Histogram(stdret, methods = c("add.normal", "add.density"),
+          colorset=c("gray","red","blue"))
+```
+qqplot, non-gaussian resid. Heteroscedasticity exist from the test. But we probabily can use arima(1,0,3) as a mean model
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+library(fGarch)
+gfit1 = garchFit(~garch(1,0),data = diff(log(apple_open)))
+gfit2 = garchFit(~garch(1,1),data = diff(log(apple_open)))
+gfit3 = garchFit(~garch(2,0),data = diff(log(apple_open)))
+gfit4 = garchFit(~garch(2,1),data = diff(log(apple_open)))
+gfit5 = garchFit(~garch(1,2),data = diff(log(apple_open)))
+gfit6 = garchFit(~garch(2,2),data = diff(log(apple_open)))
+
+gfit7 = garchFit(~arma(3,3)+garch(1,0),data = diff(log(apple_open)))
+gfit8 = garchFit(~arma(3,3)+garch(1,1),data = diff(log(apple_open)))
+gfit9 = garchFit(~arma(3,3)+garch(2,0),data = diff(log(apple_open)))
+gfit10 = garchFit(~arma(3,3)+garch(2,1),data = diff(log(apple_open)))
+gfit11 = garchFit(~arma(3,3)+garch(1,2),data = diff(log(apple_open)))
+gfit12 = garchFit(~arma(3,3)+garch(2,2),data = diff(log(apple_open)))
+
+
+```
+
+```{r}
+summary(gfit1)
+summary(gfit2)
+summary(gfit3)
+summary(gfit4)
+summary(gfit5)
+summary(gfit6)
+summary(gfit7)
+summary(gfit8)
+summary(gfit9)
+summary(gfit10)
+summary(gfit11)
+summary(gfit12)
+```
+According to the AIC(no big difference) and the significance, we find that generally we should have a ARMA model as mean, here the best model is GARCH(1,1)
+
+```{r}
+gfit = garchFit(~garch(1,1),data = diff(log(apple_open)))
+summary(gfit)
+```
+
+```{r}
+par(mfrow=c(2,1))
+plot(gfit, which = 1)
+plot(gfit, which = 2)
+```
+
+```{r}
+gfit = garch(diff(log(apple_open)),order = c(1,1))
+plot(predict(gfit))
+```
+```{r}
+library(rugarch)
+default_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)))
+default_garch <- ugarchfit(spec = default_spec, data = diff(log(apple_open)))
+set.seed(116)
+sim = ugarchsim(default_garch,n.sim=1000)
+sim_rst = sim@simulation$seriesSim[,1]
+matplot(y = sim@simulation$seriesSim[,1],x=3018:4017, type = "l",
+       main = "Simulations of Open",col = "red",xlim=c(0,4020),ylab="index",xlab="difflogopen",ylim=c(-0.12,0.12))
+lines(diff(log(apple_open)))
+```
+```{r}
+sim = rep(0,1000)
+first = log(apple_open)[3018]
+for(i in 1:1000){
+  if(i==1){
+    sim[i]=first+sim_rst[1]
+  }
+  else{
+  sim[i]=sim[i-1]+sim_rst[i]}
+}
+```
+
+```{r}
+plot(log(apple_open),xlim = c(0,4020),ylim = c(2,7))
+lines(x=3018:4017,y=sim,col="red",type="l")
+```
+
+```{r}
+plot(exp(log(apple_open)),xlim = c(0,4020),ylim=c(0,1200))
+lines(x=3018:4017,y=exp(sim),col="red",type="l")
+```
+
+```{r}
+acf((diff(log(apple_open)))^2)
+pacf((diff(log(apple_open)))^2)
+```
+
+```{r}
+model = auto.arima(diff(log(apple_open))^2, max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+garch(1,1) is better
+
+
+# amazon
+
+## EDA
+
+```{r}
+amazon = read.csv("/Users/wyc/AMZN_2006-01-01_to_2018-01-01.csv")
+```
+
+```{r}
+head(amazon)
+amazon_open = amazon$Open
+amazon_open = ts(amazon_open,start = 0)
+```
+
+```{r}
+plot(y=amazon_open,x=as.Date(amazon$Date),type = "l",main="The open price of amazon")
+```
+The open price of amazon
+
+```{r}
+par(mfrow=c(2,1), mar = c(2, 4, 2, 2))
+t.hat <- predict(loess(amazon_open ~ time(amazon_open), span=0.17))
+plot(amazon_open)
+lines(as.numeric(time(amazon_open)), t.hat, col="red", lwd=2)
+plot(amazon_open-t.hat)
+```
+Loess, dipict the trend
+
+```{r}
+plot(log(amazon_open))
+```
+Take log to have a constant trend.
+
+```{r}
+plot(diff(log(amazon_open)))
+plot(diff(log(amazon_open)),xlim=c(1500,1700))
+```
+Take one diff, seems no trend, after diff it is return of the stock. Does not seems to have any seasonal pattern. 
+
+## Model building
+
+```{r}
+library(forecast)
+acf(diff(log(amazon_open)))
+pacf(diff(log(amazon_open)))
+model = auto.arima(diff(log(amazon_open)), max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+Fit ARIMA model to the return. Hard to figure our the orders of the ARIMA model by acf, pacf, thus auto.arima. arima(1,0,3) best.
+
+```{r,warning=F}
+arima_model = arima(x=diff(log(amazon_open)),order = c(1,0,3),method='ML')
+summary(arima_model)
+plot(diff(log(amazon_open)))
+lines(diff(log(amazon_open))-arima_model$resid,col="red")
+```
+Bad result.
+
+```{r}
+qqnorm(arima_model$resid); qqline(arima_model$resid)
+acf(arima_model$resid)
+pacf(arima_model$resid)
+hist(arima_model$resid,breaks=100,prob=TRUE)
+library(MASS)
+library(QRM)
+fit1 <- fitdistr(arima_model$resid, "normal")
+para <- fit1$estimate
+curve(dnorm(x, para[1], para[2]), col = 2, add = TRUE)
+fit2 = fit.st(arima_model$resid)
+p_val = rep(0,30)
+for(i in 1:30){
+  p_val[i] = Box.test(arima_model$residual^2,lag = i)[3]
+}
+stdret <- residuals(arima_model, standardize = TRUE)
+library(PerformanceAnalytics)
+chart.Histogram(stdret, methods = c("add.normal", "add.density"),
+          colorset=c("gray","red","blue"))
+```
+qqplot, non-gaussian resid. Heteroscedasticity exist from the test. But we probabily can use arima(1,0,3) as a mean model
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+library(fGarch)
+gfit1 = garchFit(~garch(1,0),data = diff(log(amazon_open)))
+gfit2 = garchFit(~garch(1,1),data = diff(log(amazon_open)))
+gfit3 = garchFit(~garch(2,0),data = diff(log(amazon_open)))
+gfit4 = garchFit(~garch(2,1),data = diff(log(amazon_open)))
+gfit5 = garchFit(~garch(1,2),data = diff(log(amazon_open)))
+gfit6 = garchFit(~garch(2,2),data = diff(log(amazon_open)))
+
+gfit7 = garchFit(~arma(1,3)+garch(1,0),data = diff(log(amazon_open)))
+gfit8 = garchFit(~arma(1,3)+garch(1,1),data = diff(log(amazon_open)))
+gfit9 = garchFit(~arma(1,3)+garch(2,0),data = diff(log(amazon_open)))
+gfit10 = garchFit(~arma(1,3)+garch(2,1),data = diff(log(amazon_open)))
+gfit11 = garchFit(~arma(1,3)+garch(1,2),data = diff(log(amazon_open)))
+gfit12 = garchFit(~arma(1,3)+garch(2,2),data = diff(log(amazon_open)))
+
+
+```
+
+```{r}
+summary(gfit1)
+summary(gfit2)
+summary(gfit3)
+summary(gfit4)
+summary(gfit5)
+summary(gfit6)
+summary(gfit7)
+summary(gfit8)
+summary(gfit9)
+summary(gfit10)
+summary(gfit11)
+summary(gfit12)
+```
+According to the AIC(no big difference) and the significance, we find that generally we should have a ARMA model as mean, here the best model is GARCH(1,2)
+
+```{r}
+gfit = garchFit(~garch(1,2),data = diff(log(amazon_open)))
+summary(gfit)
+```
+
+```{r}
+par(mfrow=c(2,1))
+plot(gfit, which = 1)
+plot(gfit, which = 2)
+```
+
+```{r}
+gfit = garch(diff(log(amazon_open)),order = c(1,1))
+plot(predict(gfit))
+```
+```{r}
+library(rugarch)
+default_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,2)))
+default_garch <- ugarchfit(spec = default_spec, data = diff(log(amazon_open)))
+set.seed(2422224)
+sim = ugarchsim(default_garch,n.sim=1000)
+sim_rst = sim@simulation$seriesSim[,1]
+matplot(y = sim@simulation$seriesSim[,1],x=3018:4017, type = "l",
+       main = "Simulations of Open",col = "red",xlim=c(0,4020),ylab="index",xlab="difflogopen",ylim=c(-0.12,0.12))
+lines(diff(log(amazon_open)))
+```
+```{r}
+sim = rep(0,1000)
+first = log(amazon_open)[3018]
+for(i in 1:1000){
+  if(i==1){
+    sim[i]=first+sim_rst[1]
+  }
+  else{
+  sim[i]=sim[i-1]+sim_rst[i]}
+}
+```
+
+```{r}
+plot(log(amazon_open),xlim = c(0,4020),ylim = c(3,10))
+lines(x=3018:4017,y=sim,col="red",type="l")
+```
+
+```{r}
+plot(exp(log(amazon_open)),xlim = c(0,4020),ylim=c(0,9400))
+lines(x=3018:4017,y=exp(sim),col="red",type="l")
+```
+
+```{r}
+acf((diff(log(amazon_open)))^2)
+pacf((diff(log(amazon_open)))^2)
+```
+
+```{r}
+model = auto.arima(diff(log(amazon_open))^2, max.p = 3, max.q = 3,max.order = 10, stationary = T, seasonal = F, trace = T, stepwise = F, approximation = F)
+```
+garch(1,1) is better
+
+
+
+
+# comparing the three
+
+
+```{r}
+plot((google_open-mean(google_open))/sd(google_open),col="red")
+lines((apple_open-mean(apple_open))/sd(apple_open),col="blue")
+lines((amazon_open-mean(amazon_open))/sd(amazon_open),col="green")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
