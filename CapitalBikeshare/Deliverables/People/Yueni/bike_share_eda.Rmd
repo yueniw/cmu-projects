@@ -1,0 +1,154 @@
+---
+title: "bike share eda"
+author: "Yueni Wang"
+date: "11/8/2021"
+output: html_document
+---
+
+```{r}
+#Load the required libraries
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(FactoMineR)
+library(factoextra)
+library(dplyr)
+library(kableExtra)
+library(GGally)
+library(grid)
+library(gridExtra)
+library(ggplotify)
+library(reshape2)
+library(sf)
+library(ggmap)
+library(maps)
+library(mapdata)
+```
+
+```{r}
+#The transformed data:
+bikeshare <- read.csv("bike2019_transformed_new.csv")
+#The raw data:
+bikeshare_origin <- read.csv("bikeshare_capacity.csv")
+```
+
+```{r}
+bikeshare_dataframe <- bikeshare_origin %>%
+  select(LONGITUDE,LATITUDE) %>%
+  data.frame()
+```
+
+```{r}
+clusters <- hclust(dist(bikeshare_dataframe))
+```
+
+```{r}
+bikeshare_data <- bikeshare_dataframe %>%
+  mutate(cluster_station = factor(cutree(clusters, 9)))
+```
+
+```{r}
+theme_set(theme_bw(16))
+washingtonMap <- qmap("Washington DC", zoom = 11, color = "bw")
+
+washingtonMap +
+geom_point(aes(x = LONGITUDE, y = LATITUDE, colour = cluster_station),
+data = bikeshare_data)
+```
+
+
+```{r}
+by_station <- bikeshare %>%group_by(station_id)
+```
+
+```{r}
+avg_rides <- by_station %>% summarise_at(vars(availability),list(name=mean))
+```
+
+
+
+```{r warning=FALSE}
+#overview of scattered stations in washington DC
+register_google(key="AIzaSyAhU33Q8tMCDcB1wAyKQCOXBV3TKc2kTBY")
+ggmap(get_map(location = 'Washington DC', zoom = 14)) +
+  geom_point(
+    data = bikeshare_origin, 
+    aes(x = LONGITUDE, y = LATITUDE, size = STATION_ID), 
+    color = "orange"
+  )
+```
+
+```{r warning=FALSE}
+theme_set(theme_bw(16))
+washingtonMap <- qmap("Washington DC", zoom = 14, color = "bw")
+
+washingtonMap +
+geom_point(aes(x = bikeshare_origin$LONGITUDE, y = bikeshare_origin$LATITUDE, colour = bikeshare_origin$STATION_ID, size = bikeshare_origin$STATION_ID),
+data = bikeshare_origin)
+
+washingtonMap +
+stat_bin2d(
+aes(x = bikeshare_origin$LONGITUDE, y = bikeshare_origin$LATITUDE, colour = bikeshare_origin$STATION_ID, size = bikeshare_origin$STATION_ID),
+size = .5, bins = 30, alpha = 1/2,
+data = bikeshare_origin)
+```
+
+```{r warning=FALSE}
+where <- "washington dc"
+wh <- geocode(where)
+qmap(where, maprange = TRUE, zoom = 15,
+  base_layer = ggplot(aes(x=lon, y=lat), data = wh)) +
+  geom_point()
+```
+
+
+```{r}
+
+#washington <- get_map("washington dc", zoom = 14)
+#washingtonmap <- ggmap("washington dc", extent = "device", legend = "topleft")
+
+washingtonMap +
+stat_density2d(
+aes(x = bikeshare_origin$LONGITUDE, y = bikeshare_origin$LATITUDE, fill = ..level.., alpha = ..level..),
+size = 2, bins = 4, data = bikeshare_origin,
+geom = "polygon"
+)
+overlay <- stat_density2d(
+aes(x = bikeshare_origin$LONGITUDE, y = bikeshare_origin$LATITUDE, fill = ..level.., alpha = ..level..),
+bins = 4, geom = "polygon",
+data = bikeshare_origin
+)
+washingtonMap + overlay + inset(
+grob = ggplotGrob(ggplot() + overlay + theme_inset()),
+xmin = -95.35836, xmax = Inf, ymin = -Inf, ymax = 29.75062
+)
+```
+
+
+```{r}
+#Group the bikeshare data into demand clusters:
+bikeshare_group <- bikeshare %>%
+  mutate(station_group = case_when(
+    availability < -80 | availability >80 ~ "high demand",
+    availability >= -80 | availability <=0 ~ "medium demand",
+    availability > 0 | availability <=80 ~ "low demand"
+    )
+  )
+
+```
+
+```{r}
+head(bikeshare_group) %>% kbl(booktabs=T,caption=" ") %>% kable_classic()
+```
+
+```{r}
+bikenumeric <- bikeshare_group[,-c(3,4,5,10)]
+summary(bikenumeric)
+```
+
+```{r warning=FALSE message=False}
+library(data.table)
+bike_sep <- bikeshare_group %>%
+  filter(date %like% "2019-09")
+```
+

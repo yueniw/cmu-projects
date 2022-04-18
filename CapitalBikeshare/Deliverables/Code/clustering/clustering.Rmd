@@ -1,0 +1,180 @@
+---
+title: "Technical Appendix - Clustering"
+author: "Yueni Wang"
+date: "11/8/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+#Load the required libraries
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(FactoMineR)
+library(factoextra)
+library(dplyr)
+library(kableExtra)
+library(GGally)
+library(grid)
+library(gridExtra)
+library(ggplotify)
+library(reshape2)
+library(sf)
+library(ggmap)
+library(maps)
+library(mapdata)
+
+#Registering google API key:
+register_google(key="AIzaSyAhU33Q8tMCDcB1wAyKQCOXBV3TKc2kTBY")
+```
+
+```{r}
+#The transformed data:
+#bikeshare <- read.csv("bike2019_transformed_new.csv")
+#The raw data:
+bikeshare_origin <- read.csv("bike_capacity_lon_lat.csv")
+label1 <- read.csv("label_1.csv")
+
+```
+
+```{r}
+#Original Clustering using locations
+bikeshare_dataframe1 <- bikeshare_origin %>%
+  select(lon,lat) %>%
+  data.frame()
+
+clusters <- hclust(dist(bikeshare_dataframe1))
+
+bikeshare_data1 <- bikeshare_dataframe1 %>%
+  mutate(cluster_station = factor(cutree(clusters, 5)))
+
+sum(bikeshare_data1$cluster_station==1)
+sum(bikeshare_data1$cluster_station==2)
+sum(bikeshare_data1$cluster_station==3)
+sum(bikeshare_data1$cluster_station==4)
+sum(bikeshare_data1$cluster_station==5)
+```
+
+```{r}
+fviz_nbclust(bikeshare_dataframe1, FUN = hcut, method = "wss")
+fviz_nbclust(bikeshare_dataframe1, FUN = hcut, method = "silhouette")
+```
+
+```{r}
+theme_set(theme_bw(16))
+washingtonMap <- qmap("Washington DC", zoom = 11, color = "bw")
+
+k <- washingtonMap +
+geom_point(aes(x = lon, y = lat, colour=cluster_station),
+data = bikeshare_data1)
+
+k+ggtitle("Clusters on WashingtonDC Map")
+```
+
+```{r}
+#Scaled clustering (final clustering using scaled variance)
+label1_standardized <- 
+  label1 %>% 
+  mutate(weighted_lon = 0.45*scale(lon), weighted_lat = 0.45*scale(lat),weighted_var=0.1*scale(variance))
+
+
+bikeshare_dataframe <- label1_standardized %>%
+  select(weighted_lon,weighted_lat,weighted_var) %>%
+  data.frame()
+```
+
+```{r}
+clusters1 <- hclust(dist(bikeshare_dataframe))
+```
+
+```{r}
+bikeshare_data <- bikeshare_dataframe %>%
+  mutate(cluster_station = factor(cutree(clusters1, 12)))
+
+sum(bikeshare_data$cluster_station==1)
+sum(bikeshare_data$cluster_station==2)
+sum(bikeshare_data$cluster_station==3)
+sum(bikeshare_data$cluster_station==4)
+sum(bikeshare_data$cluster_station==5)
+```
+
+```{r}
+fviz_nbclust(bikeshare_dataframe, FUN = hcut, method = "wss")
+fviz_nbclust(bikeshare_dataframe, FUN = hcut, method = "silhouette")
+```
+
+
+```{r}
+theme_set(theme_bw(16))
+washingtonMap <- qmap("Washington DC", zoom = 11, color = "bw")
+
+k1 <- washingtonMap +
+geom_point(aes(x = lon, y = lat, colour=bikeshare_data$cluster_station),
+data = label1)
+
+k1+ggtitle("Clusters on WashingtonDC Map")
+```
+
+```{r}
+#Some compensation Plots
+washingtonMap +
+stat_bin2d(
+aes(x = lon, y = lat, colour = station_id, size = station_id),
+size = .5, bins = 30, alpha = 1/2,
+data = bikeshare_origin)
+
+washingtonMap +
+stat_density2d(
+aes(x = lon, y = lat, fill = ..level.., alpha = ..level..),
+size = 2, bins = 4, data = bikeshare_origin,
+geom = "polygon"
+)
+overlay <- stat_density2d(
+aes(x = lon, y = lat, fill = ..level.., alpha = ..level..),
+bins = 4, geom = "polygon",
+data = bikeshare_origin
+)
+washingtonMap + overlay + inset(
+grob = ggplotGrob(ggplot() + overlay + theme_inset()),
+xmin = -95.35836, xmax = Inf, ymin = -Inf, ymax = 29.75062
+)
+```
+
+```{r}
+#Station Selection using variance:
+#label1$cluster_station <- bikeshare_data$cluster_station
+#data1 <- label1_standardized %>%
+  #filter(cluster_station == 4) %>%
+  #arrange(variance)
+
+#print(data1$station_id[67:87])
+```
+
+```{r}
+#Station Selection without using variance:
+bikeshare_origin$cluster_station <- bikeshare_data1$cluster_station
+data2 <- bikeshare_origin %>%
+  filter(cluster_station == 2) 
+
+print(data2$station_id[1:20])
+```
+
+```{r}
+#Final 20 stations:
+a = c(31623, 31209, 31233, 31230, 31243, 31205, 31277, 31200, 31101, 31217, 31248, 31272, 31227, 31268, 31242, 31622,31219, 31221, 31288, 31655)
+
+plotting <- bikeshare_origin %>%
+  filter(station_id %in% a)
+
+theme_set(theme_bw(16))
+washingtonMap <- qmap("Washington DC", zoom = 14, color = "bw")
+
+k2 <- washingtonMap +
+geom_point(aes(x = lon, y = lat,colour="blue"),
+data = plotting)
+
+k2+ggtitle("Selected 20 Stations")
+```
+

@@ -1,0 +1,213 @@
+---
+title: "Reshuffling Strategy"
+author: "Lee, Woo Chan"
+date: "11/23/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(scales)
+```
+
+# Defining top 20 stations (highest variance of availability)
+```{r, include=FALSE}
+# Define the top 20 stations generated from hierarchical clustering
+stations <- c(31623, 31209, 31233, 31230, 31243, 31205, 31277, 31200, 31101, 31217, 31248, 31272, 31227, 31268, 31242, 31622,31219, 31221, 31288, 31655)
+
+bike <- read_csv("/Users/lee14257/Development/CMU/Perspectives_in Data_Science/Project/bike_2019_transformed_new.csv") %>%
+  mutate(
+    is_weekend = is_holiday + is_weekend
+    ) %>% 
+  filter(station_id %in% stations)
+```
+
+# Generating the availability plot throughout the day
+```{r}
+bike1 <- bike %>% 
+  arrange(date) %>%
+  dplyr::select(date, is_weekend, reshuffle, capacity, availability_p) %>%
+  mutate(
+    month = month(date),
+    hour_of_day = hour(date),
+    day_of_week = weekdays(date)
+    ) %>% filter(reshuffle == 0) %>%
+  group_by(day_of_week, hour_of_day) %>%
+  summarise(avail_p = mean(availability_p))
+```
+
+```{r}
+# Reordering day of week factor levels correctly
+bike1$day_of_week <- factor(bike1$day_of_week, levels=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"), labels=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+```
+
+```{r}
+# ggplot for availability curve throughout the day, each line representing the day of week
+# We can see that weekdays and weekends show distinctive patterns close enough so that they could be grouped together
+ggplot(bike1, aes(x = hour_of_day, y = avail_p, color=day_of_week)) + 
+  geom_line(size=1) +
+  ggtitle("Availability throughout the day (proportion)") + 
+  ylab("Availability proportion") +
+  xlab("Hour of the day") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(color='Day of week') +
+  scale_y_continuous(label = comma, expand = c(0, 0), limits = c(0, NA))
+```
+
+# Availability plot, but with weekdays and weekends grouped
+```{r}
+bike2 <- bike %>% 
+  arrange(date) %>%
+  dplyr::select(date, is_weekend, reshuffle, capacity, availability_p) %>%
+  mutate(
+    month = month(date),
+    hour_of_day = hour(date),
+    day_of_week = weekdays(date),
+    week = ifelse(day_of_week == "Saturday" | day_of_week == "Sunday", "weekend", "weekday")
+    ) %>%
+  group_by(week, hour_of_day) %>%
+  summarise(avail_p = mean(availability_p))
+```
+
+Weekday: The lowest availability is at 0.2 around 6am. This is probably due to the fact that capital share wants the stations to have enough space for the huge influx of riders to come in during rush hours. 
+
+Weekend: slight rise during afternoon to evening time, but not caused by reshuffle. Mostly caused by riders. Availability drops close to midnight, considering a lot of people take bikes to go back home. 
+```{r fig.height=2.5, fig.width=6.5}
+# ggplot for availability plot weekend vs weekday
+ggplot(bike2, aes(x = hour_of_day, y = avail_p * 100, color=week)) + 
+  geom_line(size=1.5) +
+  labs(title = "Availability throughout the day") + 
+  ylab("Percentage availability (%)") +
+  xlab("Hour of the day") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(label = comma, expand = c(0, 0), limits = c(0, NA))
+```
+
+# Reshuffling activities throughout the day
+```{r}
+# Create approrpriate dataframe to plot reshuffling activities
+bike3 <- bike %>%
+  arrange(date) %>%
+  dplyr::select(date, is_weekend, reshuffle, capacity, availability_p) %>%
+  mutate(
+    month = month(date),
+    hour_of_day = hour(date),
+    day_of_week = weekdays(date),
+    week = ifelse(day_of_week == "Saturday" | day_of_week == "Sunday", "weekend", "weekday")
+    ) %>%
+  filter(reshuffle == 1) %>%
+  group_by(week, hour_of_day) %>%
+  summarise(n = n())
+```
+
+```{r fig.height=2.5, fig.width=6.5}
+# ggplot showing reshuffling activities throughout the day (Weekends and weekdays grouped)
+ggplot(bike3, aes(x = hour_of_day, y = n, color=week)) + 
+  geom_line(size=1.5) +
+  labs(title = "Bike reshuffles throughout the day") + 
+  ylab("Number of reshuffles") +
+  xlab("Hour of the day") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(label = comma, expand = c(0, 0), limits = c(0, NA))
+```
+\
+
+# Number of bike activities
+```{r}
+# Create data frame that will be used to plot total bike activities throughout the day
+bike4 <- bike %>%
+  arrange(date) %>%
+  dplyr::select(date, is_weekend, reshuffle, capacity, availability_p) %>%
+  mutate(
+    month = month(date),
+    hour_of_day = hour(date),
+    day_of_week = weekdays(date),
+    week = ifelse(day_of_week == "Saturday" | day_of_week == "Sunday", "weekend", "weekday")
+    ) %>%
+  filter(reshuffle == 0) %>%
+  group_by(week, hour_of_day) %>%
+  summarise(n = n())
+```
+\
+
+```{r fig.height=2.5, fig.width=6.5}
+# ggplot to show total bike activities throughout the day
+ggplot(bike4, aes(x = hour_of_day, y = n, color=week)) + 
+  geom_line(size=1.5) +
+  labs(title = "Bike trips throughout the day") + 
+  ylab("Number of bike rides") +
+  xlab("Hour of the day") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(label = comma, expand = c(0, 0), limits = c(0, NA))
+```
+\
+
+# Logistic Regression on reshuffle
+```{r}
+reshuffle_mod <- glm(reshuffle ~ availability_p, family=binomial(link='logit'),data=bike)
+```
+\
+
+We can see from the coefficients below - unit increase in availability results in an increase in log odds of reshuffle. More specifically, a 0.1 increase in availability proportion in a station, increases the odds of reshuffling by approximately 3.7%
+
+exp(0.32) = 1.37 -> unit increase leads to 37%, but 0.1 increase leads to 3.7%.
+
+Makes sense because the stations we are looking at are areas with concentrated office buildings and busy urban areas, where reshuffling of bikes is more likely to occur when the availability at a station is high, during rush hours when there is a huge influx of riders that come in. 
+```{r}
+summary(reshuffle_mod)
+```
+\
+
+Most likely the reshufflings are done to re-distribute and scatter the bikes away from these stations to neighboring ones. In order to find out, we produced a table showing the average availability proportions for reshuffles that took away bikes (-1) vs brought in bikes (+1).
+```{r}
+bike_reshuffle <- bike %>% filter(reshuffle == 1)
+bike_reshuffle$act <- factor(bike_reshuffle$act, levels = c("1", "-1"))
+```
+\
+
+We can see that reshufflings that take out bikes (-1) are more likley to happen when the availability percentage at a station is high. Reshufflings that bring in bikes (+1) are more likely to happen when availability is lower (On average).
+```{r}
+# Producing tables to compare two types of reshuffles (bringing in bikes vs taking out bikes)
+bike_reshuffle2 <- bike_reshuffle %>% 
+  group_by(act) %>%
+  summarise(avg_availability_p = mean(availability_p))
+
+bike_reshuffle2
+```
+
+Our hypothesis was correct. As availability in a station increases, the odds of a reshuffling happening increases as well. And the majority of those reshuffles that happen at the peak availability, is when bikes are taken out from those stations. 
+
+This means that capital bikeshare does try to take bikes away after the morning rush hours when there is a peak of bike availability in the stations. And they also try to bring back bikes when availabilities start to go low.
+So the reshuffling strategy that capital bikeshare is implementing right now is in fact in the right direction. 
+
+
+
+
+
+
+
+
+
+
+```{r}
+test <- read_csv("/Users/lee14257/Development/CMU/Perspectives_in Data_Science/Project/2019/test.csv")
+```
+
+```{r}
+test
+```
+\
+
+```{r}
+
+```
+
