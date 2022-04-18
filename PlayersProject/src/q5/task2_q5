@@ -1,0 +1,3 @@
+SELECT count(sofifa_id),nationality FROM "FIFA".players_20
+GROUP BY nationality
+order by count(sofifa_id) DESC;

@@ -1,0 +1,7 @@
+SELECT count(sofifa_id),nation_position FROM "FIFA".players_20
+GROUP BY nation_position
+order by count(sofifa_id) DESC;
+
+SELECT count(sofifa_id),team_position FROM "FIFA".players_20
+GROUP BY team_position
+order by count(sofifa_id) DESC;

@@ -1,0 +1,2 @@
+SELECT short_name FROM "FIFA".players_20
+order by ((skill_dribbling + skill_curve + skill_fk_accuracy + skill_long_passing +skill_ball_control)/5 - overall) desc

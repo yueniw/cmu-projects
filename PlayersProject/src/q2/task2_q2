@@ -1,0 +1,4 @@
+SELECT count (sofifa_id),club FROM "FIFA".players_20
+WHERE contract_valid_until = 2021
+GROUP BY club
+order by count(sofifa_id) DESC;
